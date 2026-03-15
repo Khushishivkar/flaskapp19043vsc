@@ -1,0 +1,27 @@
+<h2>Student Dashboard</h2>
+
+<p><b>Roll No:</b> {{student.rollno}}</p>
+<p><b>Name:</b> {{student.username}}</p>
+<p><b>Course:</b> {{student.course}}</p>
+
+<h3>Attendance</h3>
+
+<table border="1">
+
+<tr>
+<th>Status</th>
+</tr>
+
+{% for a in attendance %}
+
+<tr>
+<td>{{a.status}}</td>
+</tr>
+
+{% endfor %}
+
+</table>
+
+<br>
+
+<a href="/logout">Logout</a>
