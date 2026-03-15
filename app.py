@@ -1,25 +1,50 @@
-from flask import Flask, render_template, request, redirect, session, Response
+from flask import Flask, render_template, request, redirect, session
 import sqlite3
+import os
 from datetime import date
-import csv
 
 app = Flask(__name__)
 app.secret_key = "secret123"
 
-# ---------------- DATABASE CONNECTION ----------------
+# ----------------- DATABASE SETUP -----------------
+DB_FILE = "attendance.db"
+
+if not os.path.exists(DB_FILE):
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+    CREATE TABLE students(
+        rollno INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        email TEXT,
+        password TEXT,
+        course TEXT
+    )
+    """)
+    conn.execute("""
+    CREATE TABLE attendance(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rollno INTEGER,
+        name TEXT,
+        status TEXT,
+        date TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+# ----------------- DATABASE CONNECTION -----------------
 def get_db():
-    conn = sqlite3.connect("attendance.db")
+    conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
 
-# ---------------- LOGIN PAGE ----------------
+# ----------------- LOGIN PAGE -----------------
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
 
-        # ADMIN LOGIN
         if username == "admin" and password == "admin":
             session["admin"] = True
             return redirect("/admin")
@@ -37,7 +62,7 @@ def login():
 
     return render_template("login.html")
 
-# ---------------- REGISTER PAGE ----------------
+# ----------------- REGISTER PAGE -----------------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -54,9 +79,10 @@ def register():
         conn.commit()
         conn.close()
         return redirect("/")
+
     return render_template("register.html")
 
-# ---------------- STUDENT DASHBOARD ----------------
+# ----------------- STUDENT DASHBOARD -----------------
 @app.route("/dashboard")
 def dashboard():
     if "user" not in session:
@@ -64,18 +90,15 @@ def dashboard():
 
     rollno = session["user"]
     conn = get_db()
-
     student = conn.execute(
         "SELECT * FROM students WHERE rollno=?",
         (rollno,)
     ).fetchone()
-
     attendance = conn.execute(
         "SELECT * FROM attendance WHERE rollno=? ORDER BY date DESC",
         (rollno,)
     ).fetchall()
 
-    # Attendance summary
     total = len(attendance)
     present = conn.execute(
         "SELECT COUNT(*) FROM attendance WHERE rollno=? AND status='Present'",
@@ -85,8 +108,8 @@ def dashboard():
         "SELECT COUNT(*) FROM attendance WHERE rollno=? AND status='Absent'",
         (rollno,)
     ).fetchone()[0]
-    percentage = round((present / total) * 100, 2) if total > 0 else 0
 
+    percentage = round((present / total) * 100, 2) if total > 0 else 0
     conn.close()
 
     return render_template(
@@ -99,20 +122,19 @@ def dashboard():
         percentage=percentage
     )
 
-# ---------------- ADMIN PANEL ----------------
+# ----------------- ADMIN PANEL -----------------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if "admin" not in session:
         return redirect("/")
 
     conn = get_db()
-
     if request.method == "POST":
         rollno = request.form["rollno"]
         status = request.form["status"]
-        today = date.today()
+        today = str(date.today())
 
-        # Prevent duplicate attendance on the same date
+        # check if already marked
         existing = conn.execute(
             "SELECT * FROM attendance WHERE rollno=? AND date=?",
             (rollno, today)
@@ -123,6 +145,7 @@ def admin():
                 "SELECT username FROM students WHERE rollno=?",
                 (rollno,)
             ).fetchone()
+
             if student:
                 name = student["username"]
                 conn.execute(
@@ -137,7 +160,7 @@ def admin():
 
     return render_template("admin.html", students=students, records=records)
 
-# ---------------- DELETE STUDENT ----------------
+# ----------------- DELETE STUDENT -----------------
 @app.route("/delete/<int:rollno>")
 def delete(rollno):
     conn = get_db()
@@ -146,35 +169,12 @@ def delete(rollno):
     conn.close()
     return redirect("/admin")
 
-# ---------------- LOGOUT ----------------
+# ----------------- LOGOUT -----------------
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
 
-# ---------------- DOWNLOAD ATTENDANCE REPORT (CSV) ----------------
-@app.route("/download")
-def download():
-    if "admin" not in session:
-        return redirect("/")
-
-    conn = get_db()
-    records = conn.execute("SELECT * FROM attendance ORDER BY date DESC").fetchall()
-    conn.close()
-
-    def generate():
-        header = ["Roll No", "Name", "Status", "Date"]
-        yield ",".join(header) + "\n"
-        for r in records:
-            row = [str(r["rollno"]), r["name"], r["status"], str(r["date"])]
-            yield ",".join(row) + "\n"
-
-    return Response(
-        generate(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment;filename=attendance_report.csv"}
-    )
-
-# ---------------- RUN SERVER ----------------
+# ----------------- RUN SERVER -----------------
 if __name__ == "__main__":
     app.run(debug=True)
